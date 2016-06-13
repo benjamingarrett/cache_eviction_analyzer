@@ -1,0 +1,9 @@
+Cache eviction analyzer contains two utilities.
+
+generate_eviction_sequence
+INPUT: List of operations of the form (op_i, key_i), where op_i in {0,1} and key_i is some integer
+OUTPUT: List of operations and results of the form (op_i, key_i, res_i, evicted_i)
+
+anaylyze_evictions
+INPUT: List of operations and results of the form (op_i, key_i, res_i, evicted_i)
+OUTPUT: The "youngest" evictions as calculated four ways.
