@@ -12,6 +12,9 @@
 extern "C" {
 #endif
 
+    #include<stdlib.h>
+    #include<stdint.h>
+    #include<stdio.h>
     #include<string.h>
     void cache_eviction_analyzer(int argc, char** argv);
 
