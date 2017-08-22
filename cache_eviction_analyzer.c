@@ -8,20 +8,23 @@
 #define DELETE 2
 #define EVICTION 3
 #define NON_EVICTION 4
+#define REBUILD 5
+
+
 #define FAILURE 0
 #define SUCCESS 1
 
 #define LINE_BUF_LEN 200
 
-#define MAX_KEY 100000
+#define MAX_KEY 262144
 #define NON_KEY -1
 #define NON_TIMESTAMP -1
 
 //#define SHOW_EVENT_LOG  
 
-//#define FAST_OPERATIONS  
+#define FAST_OPERATIONS  
 #define SLOW_OPERATIONS  
-//#define COMPARE_OPERATIONS  
+#define COMPARE_OPERATIONS  
 
 typedef struct {
     int64_t num_results;
@@ -184,7 +187,13 @@ int64_t get_timestamp_of_key_slow(int64_t k){
 }
 int64_t get_timestamp_of_key_fast(int64_t k){
     
-    return * cache_read_long_int(&k);
+    int64_t * t;
+    
+    t = cache_read_long_int(&k);
+    
+//    printf("get_timestamp_of_key_fast: key %ld, timestamp %ld\n", k, *t);
+    return * t;
+//    return * cache_read_long_int(&k);
 }
 int64_t get_timestamp_of_key(int64_t k){
     
@@ -244,12 +253,19 @@ int64_t get_key_of_timestamp(int64_t t){
 /*====================*/
 int64_t get_absolute_age_of_eviction_slow(int64_t k, int64_t current_time){
     
-    return current_time - get_timestamp_of_key_slow(k);
+    int64_t t;
+    
+    t = get_timestamp_of_key_slow(k);
+//    printf("get_absolute_age_of_eviction_slow: timestamp of key %ld is %ld\n", k, t);
+    return current_time - t;
 }
 int64_t get_absolute_age_of_eviction_fast(int64_t k, int64_t current_time){
     
-//    return get_absolute_age_of_eviction_slow(k, current_time);
-    return current_time - get_timestamp_of_key_fast(k);
+    int64_t t;
+    
+    t = get_timestamp_of_key_fast(k);
+//    printf("get_absolute_age_of_eviction_fast: timestamp of key %ld is %ld\n", k, t);
+    return current_time - t;
 }
 int64_t get_absolute_age_of_eviction(int64_t k, int64_t current_time){
     
@@ -263,8 +279,14 @@ int64_t get_absolute_age_of_eviction(int64_t k, int64_t current_time){
     #endif
     #ifdef COMPARE_OPERATIONS
     if(s!=f){
-        fprintf(stderr, "error: fast and slow versions of get_absolute_age_of_eviction don't match! %ld != %ld\n", f, s);
-//        exit(EXIT_FAILURE);
+        fprintf(stderr, 
+                "error: fast and slow versions of get_absolute_age_of_eviction don't match! %ld != %ld; key = %ld\n", 
+                f, s, k);
+//        skiplist_premium_dump_long_int();
+//        skiplist_dump();
+//        view_pseudo_cache(current_time);
+//        view_hashtable_long_int();
+        exit(EXIT_FAILURE);
     }
     #endif
     #ifdef SLOW_OPERATIONS
@@ -280,8 +302,8 @@ int64_t get_relative_age_of_eviction_slow(int64_t k, int64_t current_time){
     
     int64_t g, relative_age;
     
-    relative_age = 0;
-    for(g=current_time; 0<=g; g--){
+    relative_age = 1;
+    for(g=current_time-1; 0<=g; g--){
         if(key[g] != NON_KEY){
             if(key[g] == k){
                 break;
@@ -294,8 +316,17 @@ int64_t get_relative_age_of_eviction_slow(int64_t k, int64_t current_time){
 }
 int64_t get_relative_age_of_eviction_fast(int64_t k, int64_t current_time){
     
-//    return get_relative_age_of_eviction_slow(k, current_time);
-    return size_of_long_int() - 1 - index_of_long_int(cache_read_long_int(&k));
+//    int64_t num, index_1, index_2, * t, age_1, age_2;
+//    
+//    num = size_of_long_int();
+//    t = cache_read_long_int(&k);
+//    index_1 = index_of_long_int(cache_read_long_int(&k));
+//    index_2 = index_of_long_int(t);
+//    age_1 = size_of_long_int() - index_of_long_int(cache_read_long_int(&k));
+//    age_2 = num - index_1;
+//    printf("get_relative_age_of_eviction_fast: num=%ld, t=%ld, index_1=%ld, index_2=%ld, age_1=%ld, age_2=%ld\n",
+//            num, *t, index_1, index_2, age_1, age_2);
+    return size_of_long_int() - index_of_long_int(cache_read_long_int(&k));
 }
 int64_t get_relative_age_of_eviction(int64_t k, int64_t current_time){
     
@@ -312,9 +343,9 @@ int64_t get_relative_age_of_eviction(int64_t k, int64_t current_time){
         fprintf(stderr, "error: fast and slow versions of get_relative_age_of_eviction don't match! %ld != %ld\n", f, s);
         printf("index of %ld = %ld, size = %ld\n", 
                 *cache_read_long_int(&k), index_of_long_int(cache_read_long_int(&k)), size_of_long_int());
-        skiplist_premium_dump_long_int();
-        view_pseudo_cache(current_time);
-//        exit(EXIT_FAILURE);
+//        skiplist_premium_dump_long_int();
+//        view_pseudo_cache(current_time);
+        exit(EXIT_FAILURE);
     }
     #endif
     #ifdef SLOW_OPERATIONS
@@ -334,8 +365,12 @@ void evict_key_slow(int64_t k){
 }
 void evict_key_fast(int64_t k){
     
+    int64_t t;
+    
+//    printf("evict_key_fast, getting timestamp\n");
+//    t = * cache_read_long_int(&k);
+    skiplist_delete_long_int(cache_read_long_int(&k));
     cache_delete_long_int(&k);
-    skiplist_delete_long_int(&k);
 }
 void evict_key(int64_t k){
     
@@ -351,13 +386,21 @@ void evict_key(int64_t k){
 
 void analyze_sequence_of_evictions(){
     
-    int64_t g, evicted_key, inserted_key, absolute_age, relative_age, current_time;
+    int64_t g, evicted_key, inserted_key, absolute_age, relative_age, current_time, argc;
+    char *argv[7];
     result_sequence * rs;
     
     printf("analyze_sequence_of_evictions, result sequence:>%s<\n", fname);
     rs = read_event_log(fname);
     initialize_skiplist_long_int();
-    initialize_long_int_cache(100000, 16, "hashing_linear_probe_with_deletions");
+    argv[1] = "--caching_strategy";
+    argv[2] = "linear_probe_hashing_with_deletions";
+    argv[3] = "--cache_size";
+    argv[4] = "100000";
+    argv[5] = "--collision_resolution";
+    argv[6] = "linear_probe_with_deletions";
+    argc = 7;
+    initialize_long_int_cache(argc,argv);
     timestamp = calloc(MAX_KEY,sizeof(int64_t));
     key = calloc(MAX_KEY,sizeof(int64_t));
     current_time = 0;
@@ -379,19 +422,45 @@ void analyze_sequence_of_evictions(){
                     break;
                 case WRITE:
                     if(rs->arg[g][1]==EVICTION){
-//                        printf("eviction detected\n");
+//                        printf("eviction at current_time %ld\n", current_time);
                         evicted_key = rs->arg[g][3];
-                        g++;
-                        inserted_key = rs->arg[g][2];
-                        set_timestamp(inserted_key, current_time);
                         absolute_age = get_absolute_age_of_eviction(evicted_key, current_time);
                         relative_age = get_relative_age_of_eviction(evicted_key, current_time);
                         update_ages(absolute_age, relative_age);
+                        
+//                        printf("eviction of key %ld\n", evicted_key);
+//                        printf("time %ld: evict key %ld, absolute age %ld, relative age %ld\n",
+//                                current_time, evicted_key, absolute_age, relative_age);
+//                        view_ages();
+                        
                         evict_key(evicted_key);
-//                        printf("time %ld: insert key %ld, evict key %ld, absolute age %ld, relative age %ld\n", 
-//                                current_time, inserted_key, evicted_key, 
-//                                absolute_age,
-//                                relative_age );
+                        
+                        
+//                         find inserted key and process all evictions in case a rebuild was found
+                        g++;
+//                        printf("find inserted key and process all evictions in case a rebuild was found\n");
+                        while( rs->arg[g][1]!=NON_EVICTION && g<rs->num_results ){
+                            if( rs->arg[g][1]==EVICTION ){
+//                                printf("another eviction\n");
+                                evicted_key = rs->arg[g][3];
+                                absolute_age = get_absolute_age_of_eviction(evicted_key, current_time);
+                                relative_age = get_relative_age_of_eviction(evicted_key, current_time);
+                                update_ages(absolute_age, relative_age);
+//                                printf("eviction of key %ld\n", evicted_key);
+//                                printf("time %ld: evict key %ld, absolute age %ld, relative age %ld\n",
+//                                        current_time, evicted_key, absolute_age, relative_age);
+                                evict_key(evicted_key);
+                            } else {
+                                printf("eviction not found - the analyzer is confused!\n");
+                                exit(EXIT_FAILURE);
+                            }
+                            g++;
+                        }
+                        
+                        inserted_key = rs->arg[g][2];
+//                        printf("inserted_key %ld\n", inserted_key);
+                        set_timestamp(inserted_key, current_time);
+
                         current_time++;
                     } else if(rs->arg[g][1]==NON_EVICTION){
                         inserted_key = rs->arg[g][2];
@@ -408,33 +477,18 @@ void analyze_sequence_of_evictions(){
                     exit(EXIT_FAILURE);
             }
 //            printf("successful operation %ld done\n", g);
+//            skiplist_dump();
+//            view_pseudo_cache(current_time);
+//            view_hashtable_long_int();
+//            printf("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n\n");
         }
         g++;
     }
     view_ages();
 }
 
-
 //hashtable: (key, time)
 //skiplist: (time, key)
-
-//{EVICTION/NON-EVICTION},new_key,old_key
-//{READ/WRITE/DELETE},key,result
-
-//for g=1 to N
-//  switch(op){
-//    case read:
-//      if (key[g] not in skiplist AND result==true) OR (key[g] in skiplist AND result==FALSE)
-//        log an error
-//      if version_two
-//        delete key from skiplist and hashtable
-//        insert same key with new timestamp
-//    case write:
-//      if (key[g] not in skiplist AND result==true) OR (key[g] in skiplist AND result==FALSE)
-//        log an error
-//      delete the evicted key from both skiplist and hashtable
-//      update the youngest key
-//      insert new eviction into both skiplist and hashtable
 
 void cache_eviction_analyzer(int argc, char** argv){
     
