@@ -6,18 +6,18 @@
  */
 
 #ifndef GENERATE_EVICTION_SEQUENCE_H
-#define	GENERATE_EVICTION_SEQUENCE_H
+#define GENERATE_EVICTION_SEQUENCE_H
 
-#ifdef	__cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
 
 
 
-#ifdef	__cplusplus
+#ifdef __cplusplus
 }
 #endif
 
-#endif	/* GENERATE_EVICTION_SEQUENCE_H */
+#endif /* GENERATE_EVICTION_SEQUENCE_H */
 

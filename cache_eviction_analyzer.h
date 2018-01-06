@@ -6,23 +6,23 @@
  */
 
 #ifndef CACHE_EVICTION_ANALYZER_H
-#define	CACHE_EVICTION_ANALYZER_H
+#define CACHE_EVICTION_ANALYZER_H
 
-#ifdef	__cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
-    #include<stdlib.h>
-    #include<stdint.h>
-    #include<stdio.h>
-    #include<string.h>
-    #include "../memoization/memo_long_int.h"
-    #include "../indexed_skiplist/indexed_skiplist_long_int.h"
-    void cache_eviction_analyzer(int argc, char** argv);
+#include<stdlib.h>
+#include<stdint.h>
+#include<stdio.h>
+#include<string.h>
+#include "../memoization/memo_long_int.h"
+#include "../indexed_skiplist/indexed_skiplist_long_int.h"
+  void cache_eviction_analyzer(int argc, char** argv);
 
-#ifdef	__cplusplus
+#ifdef __cplusplus
 }
 #endif
 
-#endif	/* CACHE_EVICTION_ANALYZER_H */
+#endif /* CACHE_EVICTION_ANALYZER_H */
 

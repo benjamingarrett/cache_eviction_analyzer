@@ -1,0 +1,25 @@
+echo 001_analyze_nri_clock_balanced.sh
+#./001_analyze_nri_clock_balanced.sh
+echo 002_analyze_nri_clock_read_heavy.sh
+#./002_analyze_nri_clock_read_heavy.sh
+echo 003_analyze_nru_clock_absolute_balanced.sh
+#./003_analyze_nru_clock_absolute_balanced.sh
+echo 004_analyze_nru_clock_absolute_read_heavy.sh
+#./004_analyze_nru_clock_absolute_read_heavy.sh
+echo 005_analyze_nru_clock_relative_balanced.sh
+#./005_analyze_nru_clock_relative_balanced.sh
+echo 006_analyze_nru_clock_relative_read_heavy.sh
+#./006_analyze_nru_clock_relative_read_heavy.sh
+
+echo 007_analyze_nri_d_drunken_balanced.sh
+./007_analyze_nri_d_drunken_balanced.sh
+echo 008_analyze_nri_d_drunken_read_heavy.sh
+./008_analyze_nri_d_drunken_read_heavy.sh
+echo 009_analyze_nru_d_drunken_absolute_balanced.sh
+./009_analyze_nru_d_drunken_absolute_balanced.sh
+echo 010_analyze_nru_d_drunken_absolute_read_heavy.sh
+./010_analyze_nru_d_drunken_absolute_read_heavy.sh
+echo 011_analyze_nru_d_drunken_relative_balanced.sh
+./011_analyze_nru_d_drunken_relative_balanced.sh
+echo 012_analyze_nru_d_drunken_relative_read_heavy.sh
+./012_analyze_nru_d_drunken_relative_read_heavy.sh
