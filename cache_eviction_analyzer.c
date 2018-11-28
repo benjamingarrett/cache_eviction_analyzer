@@ -1,8 +1,5 @@
 #include "cache_eviction_analyzer.h"
 
-#define TRUE 1
-#define FALSE 0
-
 #define READ 0
 #define WRITE 1
 #define DELETE 2
@@ -10,494 +7,249 @@
 #define INSERTION 4
 #define REBUILD 5
 #define TIMESTAMP_UPDATE 6
-
-
-#define FAILURE 0
-#define SUCCESS 1
+#define USAGE 7
 
 #define LINE_BUF_LEN 200
 
-#define MAX_KEY 262144
-#define NON_KEY -1
-#define NON_TIMESTAMP -1
+#define FAST_CACHE  
+//#define SLOW_CACHE  
+//#define COMPARE_CACHES  
 
-//#define SHOW_EVENT_LOG  
-
-//#define FAST_OPERATIONS  
-#define SLOW_OPERATIONS  
-//#define COMPARE_OPERATIONS  
+const char * result_sequence_param = "--cea_result_sequence";
 
 typedef struct {
-  int64_t num_results;
-  int64_t num_arguments;
-  int64_t ** arg;
-} result_sequence;
-
-int64_t table_size;
-char collision_resolution_type[LINE_BUF_LEN];
-char caching_strategy[LINE_BUF_LEN];
-char fname[LINE_BUF_LEN];
-uint64_t queue_size;
-uint64_t cache_miss_threshold;
-int64_t num_arguments;
-
-int64_t * timestamp, * key, largest_key, highest_timestamp;
-int64_t min_absolute_age, min_relative_age, max_absolute_age, max_relative_age;
-
-int64_t ** get_int64_t_matrix(int64_t n, int64_t m) {
-
-  int64_t i;
-  int64_t ** matrix;
-
-  if ((matrix = (int64_t **) malloc(sizeof (int64_t) * n * m +
-          sizeof (int64_t *) * n)) == NULL) {
-    printf("Generate int64_t matrix error n = %d m = %d\n", (int) n, (int) m);
-    exit(EXIT_FAILURE);
-  }
-  for (i = 0; i < n; i++) {
-    matrix[i] = (int64_t *) (matrix + n) + i*m;
-  }
-  return matrix;
+  int64_t min_absolute_access;
+  int64_t min_relative_access;
+  int64_t current_time;
+} age_t;
+void initialize_ages(age_t * a){
+  a->min_absolute_access = LONG_MAX;
+  a->min_relative_access = LONG_MAX;
+  a->current_time = 1;
+}
+void update_min_bound(int64_t * min, int64_t val){
+  *min = (val < *min) ? val : *min;
 }
 
-void parse_options(int argc, char ** argv) {
 
-  int i;
-
-  for (i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--table_size") == 0) {
-      if (i + 1 < argc) {
-        table_size = (uint64_t) atoi(argv[++i]);
-      }
-    }
-    if (strcmp(argv[i], "--caching_strategy") == 0) {
-      if (i + 1 < argc) {
-        strcpy(caching_strategy, &argv[++i][0]);
-      }
-    } else if (strcmp(argv[i], "--result_sequence") == 0) {
-      if (i + 1 < argc) {
-        strcpy(fname, &argv[++i][0]);
-      }
-    } else if (strcmp(argv[i], "--queue_size") == 0) {
-      if (i + 1 < argc) {
-        queue_size = (uint64_t) atoi(argv[++i]);
-      }
-    } else if (strcmp(argv[i], "--threshold") == 0) {
-      if (i + 1 < argc) {
-        cache_miss_threshold = (uint64_t) atoi(argv[++i]);
-      }
-    } else if (strcmp(argv[i], "--num_arguments") == 0) {
-      if (i + 1 < argc) {
-        num_arguments = (int64_t) atoi(argv[++i]);
-      }
-    }
+/*========================PSEUDO CACHE==========================*/
+const long int PSEUDO_CACHE_CAPACITY = 30000000;
+const long int PSEUDO_CACHE_NON_VALUE = -1;
+typedef struct {
+  int64_t * key;
+  int64_t * timestamp;
+  int64_t largest_key;
+  int64_t highest_timestamp;
+  int64_t capacity;
+} pseudo_cache_t;
+void initialize_pseudo_cache(pseudo_cache_t * pc){
+  pc->key = calloc(PSEUDO_CACHE_CAPACITY, sizeof(int64_t));
+  pc->timestamp = calloc(PSEUDO_CACHE_CAPACITY, sizeof(int64_t));
+  pc->largest_key = PSEUDO_CACHE_NON_VALUE;
+  pc->highest_timestamp = PSEUDO_CACHE_NON_VALUE;
+  for(int64_t g = 0; g < PSEUDO_CACHE_CAPACITY; g++){
+    pc->key[g] = PSEUDO_CACHE_NON_VALUE;
+    pc->timestamp[g] = PSEUDO_CACHE_NON_VALUE;
   }
+  pc->capacity = PSEUDO_CACHE_CAPACITY;
 }
-
-result_sequence * read_event_log(char fname[200]) {
-
-  FILE * fp;
-  result_sequence * rs;
-  char buf[200];
-  int64_t n, m, g;
-  int64_t a0, a1, a2, a3, a4, a5, a6;
-
-
-  if ((fp = fopen(fname, "r")) == NULL) {
-    fprintf(stderr, "Failed to open file %s\n", fname);
-  }
-  rs = calloc(1, sizeof (result_sequence));
-  rs->num_arguments = 7;
-  while ((n = fscanf(fp, "%s", buf)) != EOF) {
-#ifdef SHOW_EVENT_LOG
-    printf("Processing >%s<\n", buf);
-#endif
-    if (strcmp("OPERATIONS", buf) == 0) {
-      rs->num_results = 0;
-      while ((n = fscanf(fp, "%ld %ld %ld %ld %ld %ld %ld\n",
-              &a0, &a1, &a2, &a3, &a4, &a5, &a6)) != EOF) {
-        rs->num_results++;
-      }
-      //            printf("num_results: %ld\n", rs->num_results);
-      n = fscanf(fp, "%ld", (long int *) &rs->num_results);
-#ifdef SHOW_EVENT_LOG
-      printf("num_results = %ld\n", rs->num_results);
-#endif
-      fseek(fp, 0, SEEK_SET);
-      rs->arg = get_int64_t_matrix(rs->num_results, rs->num_arguments);
-      while ((n = fscanf(fp, "%s", buf)) != EOF) {
-        if (strcmp("OPERATIONS", buf) == 0) {
-          for (g = 0; g < rs->num_results; g++) {
-            n = fscanf(fp, "%ld %ld %ld %ld %ld %ld %ld\n",
-                    &rs->arg[g][0], &rs->arg[g][1], &rs->arg[g][2], &rs->arg[g][3],
-                    &rs->arg[g][4], &rs->arg[g][5], &rs->arg[g][6]);
-#ifdef SHOW_EVENT_LOG
-            printf("read event line %ld: %ld %ld %ld %ld %ld\n", g, rs->arg[g][0], rs->arg[g][1], rs->arg[g][2], rs->arg[g][3], rs->arg[g][4]);
-#endif
-          }
-        }
-      }
-      break;
-    }
-  }
-  fclose(fp);
-  return rs;
-}
-
-void view_pseudo_cache(int64_t current_time) {
-
-  int64_t g, m;
-
-  m = (largest_key < highest_timestamp) ? highest_timestamp : largest_key;
-  printf("\n====pseudo cache - current_time %ld\n", current_time);
-  for (g = 0; g <= m; g++) {
-    printf("t[%ld]=%ld\tk[%ld]=%ld\n", g, timestamp[g], g, key[g]);
+pseudo_cache_t * pseudo_cache;
+void set_pseudo_cache(pseudo_cache_t * pc){ pseudo_cache = pc; }
+pseudo_cache_t * get_pseudo_cache(){ return pseudo_cache; }
+void view_pseudo_cache(){
+  pseudo_cache_t * pc = get_pseudo_cache();
+  int64_t m = pc->highest_timestamp+2;
+  printf("\n====pseudo cache====\n");
+  for(int64_t g = 0; g <= m; g++){
+    printf("t[%ld]=%ld\tk[%ld]=%ld\n", g, pc->timestamp[g], g, pc->key[g]);
   }
   printf("====\n");
 }
-
-void initialize_ages() {
-
-  min_absolute_age = LONG_MAX;
-  min_relative_age = LONG_MAX;
-  max_absolute_age = -1;
-  max_relative_age = -1;
+void set_timestamp(int64_t k, int64_t t){
+  #ifdef SLOW_CACHE
+  pseudo_cache_t * pc = get_pseudo_cache();
+  pc->key[t] = k;
+  pc->timestamp[k] = t;
+  pc->highest_timestamp = (pc->highest_timestamp < t) ? t : pc->highest_timestamp;
+  pc->largest_key = (pc->largest_key < k) ? k : pc->largest_key;
+  #endif
+  #ifdef FAST_CACHE
+  cache_write_long_int(&k,&t);
+  skiplist_write_long_int(&t,&k);
+  #endif
 }
-
-void update_ages(int64_t absolute_age, int64_t relative_age) {
-
-  min_absolute_age = (absolute_age < min_absolute_age) ? absolute_age : min_absolute_age;
-  min_relative_age = (relative_age < min_relative_age) ? relative_age : min_relative_age;
-  max_absolute_age = (max_absolute_age < absolute_age) ? absolute_age : max_absolute_age;
-  max_relative_age = (max_relative_age < relative_age) ? relative_age : max_relative_age;
+int64_t * get_timestamp(int64_t k){
+  #ifdef SLOW_CACHE
+  pseudo_cache_t * pc = get_pseudo_cache();
+  return &(pc->timestamp[k]);
+  #endif
+  #ifdef FAST_CACHE
+  int64_t * t = cache_read_long_int(&k);
+  return t;
+  #endif
 }
-
-void view_ages() {
-
-  printf("      absolute=[%ld,%ld] relative=[%ld,%ld]\n", min_absolute_age, max_absolute_age, min_relative_age, max_relative_age);
+int64_t * get_key(int64_t t){
+  #ifdef SLOW_CACHE
+  pseudo_cache_t * pc = get_pseudo_cache();
+  return &(pc->key[t]);
+  #endif
+  #ifdef FAST_CACHE
+  int64_t * k = skiplist_read_long_int(&t);
+  return k;
+  #endif
 }
-
-/*====================*/
-void set_timestamp_slow(int64_t k, int64_t t) {
-
-  key[t] = k;
-  timestamp[k] = t;
-  highest_timestamp = (highest_timestamp < t) ? t : highest_timestamp;
-  largest_key = (largest_key < k) ? k : largest_key;
+int64_t is_empty(int64_t * x){
+  #ifdef SLOW_CACHE
+  return (*x == PSEUDO_CACHE_NON_VALUE) ? 1 : 0;
+  #endif
+  #ifdef FAST_CACHE
+  return (x == NULL) ? 1 : 0;
+  #endif
 }
-
-void set_timestamp_fast(int64_t k, int64_t t) {
-
-  cache_write_long_int(&k, &t);
-  skiplist_write_long_int(&t, &k);
+void evict_key(int64_t * k){
+  #ifdef SLOW_CACHE
+  pseudo_cache_t * pc = get_pseudo_cache();
+  pc->key[pc->timestamp[k]] = PSEUDO_CACHE_NON_VALUE;
+  pc->timestamp[k] = PSEUDO_CACHE_NON_VALUE;
+  #endif
+  #ifdef FAST_CACHE
+  skiplist_delete_long_int(get_timestamp(*k));
+  cache_delete_long_int(k);  
+  #endif
 }
-
-void set_timestamp(int64_t k, int64_t t) {
-
-#ifdef SLOW_OPERATIONS
-  set_timestamp_slow(k, t);
-#endif
-#ifdef FAST_OPERATIONS
-  set_timestamp_fast(k, t);
-#endif
+int64_t absolute_age(age_t ages, int64_t k){
+  return ages.current_time - *get_timestamp(k);
 }
-
-/*====================*/
-int64_t get_timestamp_of_key_slow(int64_t k) {
-
-  return timestamp[k];
-}
-
-int64_t get_timestamp_of_key_fast(int64_t k) {
-
-  int64_t * t;
-
-  t = cache_read_long_int(&k);
-
-  //    printf("get_timestamp_of_key_fast: key %ld, timestamp %ld\n", k, *t);
-  return * t;
-  //    return * cache_read_long_int(&k);
-}
-
-int64_t get_timestamp_of_key(int64_t k) {
-
-  int64_t s, f;
-
-#ifdef SLOW_OPERATIONS
-  s = get_timestamp_of_key_slow(k);
-#endif
-#ifdef FAST_OPERATIONS
-  f = get_timestamp_of_key_fast(k);
-#endif
-#ifdef COMPARE_OPERATIONS
-  if (s != f) {
-    fprintf(stderr, "error: fast and slow versions of get_timestamp don't match! %ld != %ld\n", f, s);
-    exit(EXIT_FAILURE);
+int64_t relative_age(age_t ages, int64_t k){
+  #ifdef SLOW_CACHE
+  int64_t d = ages.current_time;
+  int64_t a = 1;
+  while(d>=0){
+    if(!is_empty(get_key(d))){
+      if(*get_key(d)==k){
+        return a;
+      }
+      a++;
+    }
+    d--;
   }
-#endif
-#ifdef SLOW_OPERATIONS
-  return s;
-#endif
-#ifdef FAST_OPERATIONS
-  return f;
-#endif
+  return a;
+  #endif
+  #ifdef FAST_CACHE
+  return size_of_long_int() - index_of_long_int(&k) - 1;
+  #endif
 }
-
-/*====================*/
-int64_t get_key_of_timestamp_slow(int64_t t) {
-
-  return key[t];
-}
-
-int64_t get_key_of_timestamp_fast(int64_t t) {
-
-  return * skiplist_read_long_int(&t);
-}
-
-int64_t get_key_of_timestamp(int64_t t) {
-
-  int64_t s, f;
-
-#ifdef SLOW_OPERATIONS
-  s = get_key_of_timestamp_slow(t);
-#endif
-#ifdef FAST_OPERATIONS
-  f = get_key_of_timestamp_fast(t);
-#endif
-#ifdef COMPARE_OPERATIONS
-  if (s != f) {
-    fprintf(stderr, "error: fast and slow versions of get_key_of_timestamp don't match! %ld != %ld\n", f, s);
-    exit(EXIT_FAILURE);
+//=================================================
+void process_insertion(age_t * ages, int64_t new_key){
+  if(new_key!=-1){
+    if(is_empty(get_timestamp(new_key))){
+      set_timestamp(new_key, ages->current_time);
+      ages->current_time++;
+    } else {
+      fprintf(stderr, "key %ld already in cache\n", new_key);
+      exit(1);
+    }
   }
-#endif
-#ifdef SLOW_OPERATIONS
-  return s;
-#endif
-#ifdef FAST_OPERATIONS
-  return f;
-#endif
 }
-
-/*====================*/
-int64_t get_absolute_age_of_eviction_slow(int64_t k, int64_t current_time) {
-
-  int64_t t;
-
-  t = get_timestamp_of_key_slow(k);
-  //    printf("get_absolute_age_of_eviction_slow: timestamp of key %ld is %ld\n", k, t);
-  return current_time - t;
-}
-
-int64_t get_absolute_age_of_eviction_fast(int64_t k, int64_t current_time) {
-
-  int64_t t;
-
-  t = get_timestamp_of_key_fast(k);
-  //    printf("get_absolute_age_of_eviction_fast: timestamp of key %ld is %ld\n", k, t);
-  return current_time - t;
-}
-
-int64_t get_absolute_age_of_eviction(int64_t k, int64_t current_time) {
-
-  int64_t s, f;
-
-#ifdef SLOW_OPERATIONS
-  s = get_absolute_age_of_eviction_slow(k, current_time);
-#endif
-#ifdef FAST_OPERATIONS
-  f = get_absolute_age_of_eviction_fast(k, current_time);
-#endif
-#ifdef COMPARE_OPERATIONS
-  if (s != f) {
-    fprintf(stderr,
-            "error: fast and slow versions of get_absolute_age_of_eviction don't match! %ld != %ld; key = %ld\n",
-            f, s, k);
-    //        skiplist_premium_dump_long_int();
-    //        skiplist_dump();
-    //        view_pseudo_cache(current_time);
-    //        view_hashtable_long_int();
-    exit(EXIT_FAILURE);
+void process_eviction(age_t * ages, int64_t evicted_key){
+  if(evicted_key!=-1){
+    if(!is_empty(get_timestamp(evicted_key))){
+      update_min_bound(&(ages->min_absolute_access), absolute_age(*ages,evicted_key));
+      update_min_bound(&(ages->min_relative_access), relative_age(*ages,evicted_key));
+      printf("evicting key %ld\n", evicted_key);
+      evict_key(&evicted_key);
+    } else {
+      fprintf(stderr, "key %ld not in cache\n", evicted_key);
+      exit(1);
+    }
   }
-#endif
-#ifdef SLOW_OPERATIONS
-  return s;
-#endif
-#ifdef FAST_OPERATIONS
-  return f;
-#endif
 }
-
-/*====================*/
-
-int64_t get_relative_age_of_eviction_slow(int64_t k, int64_t current_time) {
-
-  int64_t g, relative_age;
-
-  relative_age = 1;
-  for (g = current_time - 1; 0 <= g; g--) {
-    if (key[g] != NON_KEY) {
-      if (key[g] == k) {
+void process_timestamp_update(age_t * ages, int64_t updated_key, int64_t new_time){
+  if(updated_key!=-1){
+    printf("update key %ld to time %ld (current time %ld)\n", updated_key, new_time, ages->current_time);
+    if(!is_empty(get_timestamp(updated_key))){
+      evict_key(&updated_key);
+      set_timestamp(updated_key,new_time);
+    } else {
+      fprintf(stderr, "process_timestamp_update, key %ld not in cache\n", updated_key);
+      exit(1);
+    }
+  }
+}
+void process_usage(age_t * ages, int64_t updated_key){
+  if(updated_key!=-1){
+    int64_t old_time = *get_timestamp(updated_key);
+    printf("update key %ld from time %ld to current time %ld\n", updated_key, old_time, ages->current_time);
+    if(!is_empty(get_timestamp(updated_key))){
+      evict_key(&updated_key);
+      set_timestamp(updated_key, ages->current_time);
+      ages->current_time++;
+    } else {
+      fprintf(stderr, "process_usage, key %ld not in cache\n", updated_key);
+      exit(1);
+    }
+  }
+}
+void process_input_line(age_t * ages, int64_t op, int64_t event, int64_t new_key, int64_t old_key, 
+                                                 int64_t result, int64_t new_time, int64_t old_time){
+  if(result == 1){
+    switch(event){
+      case INSERTION:
+        process_insertion(ages, new_key);
         break;
-      } else {
-        relative_age++;
+      case EVICTION:
+        process_eviction(ages, old_key);
+        break;
+      case TIMESTAMP_UPDATE:
+        process_timestamp_update(ages, old_key, new_time);
+        break;
+      case USAGE:
+        process_usage(ages, old_key);
+        break;
+      default:
+        fprintf(stderr, "Encountered unknown event type %ld\n", event);
+        exit(1);
+    }
+  }
+}
+void cache_eviction_analyzer(int argc, char ** argv){
+  printf("cache_eviction_analyzer\n");
+  char result_sequence_fname[LINE_BUF_LEN];
+  for(int64_t i = 1; i < argc; i++){
+    if(strcmp(argv[i], result_sequence_param) == 0){
+      if(i + 1 < argc){
+        strcpy(result_sequence_fname, &argv[++i][0]);
       }
     }
   }
-  return relative_age;
-}
-
-int64_t get_relative_age_of_eviction_fast(int64_t k, int64_t current_time) {
-
-  //    int64_t num, index_1, index_2, * t, age_1, age_2;
-  //    
-  //    num = size_of_long_int();
-  //    t = cache_read_long_int(&k);
-  //    index_1 = index_of_long_int(cache_read_long_int(&k));
-  //    index_2 = index_of_long_int(t);
-  //    age_1 = size_of_long_int() - index_of_long_int(cache_read_long_int(&k));
-  //    age_2 = num - index_1;
-  //    printf("get_relative_age_of_eviction_fast: num=%ld, t=%ld, index_1=%ld, index_2=%ld, age_1=%ld, age_2=%ld\n",
-  //            num, *t, index_1, index_2, age_1, age_2);
-  return size_of_long_int() - index_of_long_int(cache_read_long_int(&k));
-}
-
-int64_t get_relative_age_of_eviction(int64_t k, int64_t current_time) {
-
-  int64_t s, f;
-
-#ifdef SLOW_OPERATIONS
-  s = get_relative_age_of_eviction_slow(k, current_time);
-#endif
-#ifdef FAST_OPERATIONS
-  f = get_relative_age_of_eviction_fast(k, current_time);
-#endif
-#ifdef COMPARE_OPERATIONS
-  if (s != f) {
-    fprintf(stderr, "error: fast and slow versions of get_relative_age_of_eviction don't match! %ld != %ld\n", f, s);
-    printf("index of %ld = %ld, size = %ld\n",
-            *cache_read_long_int(&k), index_of_long_int(cache_read_long_int(&k)), size_of_long_int());
-    //        skiplist_premium_dump_long_int();
-    //        view_pseudo_cache(current_time);
-    exit(EXIT_FAILURE);
-  }
-#endif
-#ifdef SLOW_OPERATIONS
-  return s;
-#endif
-#ifdef FAST_OPERATIONS
-  return f;
-#endif
-}
-
-/*====================*/
-
-void evict_key_slow(int64_t k) {
-
-  key[timestamp[k]] = NON_KEY;
-  timestamp[k] = NON_TIMESTAMP;
-  //    printf("evict_key %ld\n", k);
-}
-
-void evict_key_fast(int64_t k) {
-
-  int64_t t;
-
-  //    printf("evict_key_fast, getting timestamp\n");
-  t = *cache_read_long_int(&k);
-  //    printf("evict_key_fast found timestamp %ld for key %ld\n", t, k);
-  skiplist_delete_long_int(cache_read_long_int(&k));
-  cache_delete_long_int(&k);
-}
-
-void evict_key(int64_t k) {
-
-#ifdef FAST_OPERATIONS
-  evict_key_fast(k);
-  //    printf("evict_key_fast done\n");
-#endif
-#ifdef SLOW_OPERATIONS
-  evict_key_slow(k);
-#endif
-}
-
-/*====================*/
-
-void analyze_sequence_of_evictions() {
-
-  int64_t g, evicted_key, inserted_key, absolute_age, relative_age, current_time, argc, updated_key, new_time;
-  char *argv[7];
-  result_sequence * rs;
-
-  //printf("analyze_sequence_of_evictions, result sequence:\n%s\n", fname);
-  rs = read_event_log(fname);
+  age_t ages;
+  initialize_ages(&ages);
+  pseudo_cache_t access_times;
+  initialize_pseudo_cache(&access_times);
+  set_pseudo_cache(&access_times);
   initialize_skiplist_long_int();
-  argv[1] = "--caching_strategy";
-  argv[2] = "linear_probe_hashing_with_deletions";
-  argv[3] = "--cache_size";
-  argv[4] = "1000000";
-  argv[5] = "--collision_resolution";
-  argv[6] = "linear_probe_with_deletions";
-  argc = 7;
-  initialize_long_int_cache(argc, argv);
-  timestamp = calloc(MAX_KEY, sizeof (int64_t));
-  key = calloc(MAX_KEY, sizeof (int64_t));
-  current_time = 0;
-  largest_key = highest_timestamp = -1;
-  for (g = 0; g < MAX_KEY; g++) {
-    timestamp[g] = NON_TIMESTAMP;
-    key[g] = NON_KEY;
+  initialize_long_int_cache(argc,argv);
+  FILE * fp = fopen(result_sequence_fname, "r");
+  if(fp == NULL){
+    fprintf(stderr, "Failed to open file %s\n", result_sequence_fname);
+    exit(1);
   }
-  g = 0;
-  current_time = 1;
-  initialize_ages();
-  //    printf("num results: %ld\n", rs->num_results);
-  while (g < rs->num_results) {
-    //        if(g%200000==0)
-    //            printf("result: %ld/%ld\n", g, rs->num_results);
-    if (rs->arg[g][4] == SUCCESS) {
-      switch (rs->arg[g][1]) {
-        case INSERTION:
-          //                    printf("insertion\n");
-          inserted_key = rs->arg[g][2];
-          set_timestamp(inserted_key, current_time);
-          current_time++;
-          break;
-        case EVICTION:
-          //                    printf("eviction\n");
-          evicted_key = rs->arg[g][3];
-          absolute_age = get_absolute_age_of_eviction(evicted_key, current_time);
-          relative_age = get_relative_age_of_eviction(evicted_key, current_time);
-          update_ages(absolute_age, relative_age);
-          evict_key(evicted_key);
-          break;
-        case TIMESTAMP_UPDATE:
-          updated_key = rs->arg[g][3];
-          new_time = rs->arg[g][5];
-          //                    printf("update key %ld to time %ld (current time %ld)\n", updated_key, new_time, current_time);
-          evict_key(updated_key);
-          //                    printf("eviction successful\n");
-          set_timestamp(updated_key, new_time);
-          //                    printf("set_timestamp successful\n");
-          current_time++;
-          break;
-        default:
-          fprintf(stderr, "Invalid value for argument 1: %ld\n", rs->arg[g][1]);
-          exit(EXIT_FAILURE);
+  int64_t n;
+  char buf[LINE_BUF_LEN];
+  while((n = fscanf(fp, "%s", buf)) != EOF){
+    printf("Processing >%s<\n", buf);
+    if(strcmp("OPERATIONS", buf) == 0){
+      int64_t op, event, new_key, old_key, result, new_time, old_time;
+      while((n = fscanf(fp, "%ld %ld %ld %ld %ld %ld %ld\n",
+              &op, &event, &new_key, &old_key, &result, &new_time, &old_time)) != EOF){
+        printf("event %ld new_key %ld old_key %ld new_time %ld old_time %ld -- [%ld,%ld]\n",
+              event, new_key, old_key, new_time, old_time, 
+              ages.min_absolute_access, ages.min_relative_access);
+        process_input_line(&ages, op, event, new_key, old_key, result, new_time, old_time);
       }
-      //            printf("successful operation %ld done\n", g);
-      //            skiplist_dump();
-      //            view_pseudo_cache(current_time);
-      //            view_hashtable_long_int();
-      //            printf("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n\n");
     }
-    g++;
   }
-  view_ages();
+  printf("access(abs,rel): [%ld,%ld]\n", ages.min_absolute_access, ages.min_relative_access);
+  fclose(fp);
 }
 
-void cache_eviction_analyzer(int argc, char** argv) {
-
-  //    printf("cache eviction analyzer\n");
-  parse_options(argc, argv);
-  analyze_sequence_of_evictions();
-}
