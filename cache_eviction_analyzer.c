@@ -1,3 +1,9 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "../memoization/memo_long_int.h"
+#include "../indexed_skiplist/indexed_skiplist_long_int.h"
 #include "cache_eviction_analyzer.h"
 
 #define READ 0

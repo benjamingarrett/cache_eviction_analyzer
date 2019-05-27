@@ -12,12 +12,6 @@
 extern "C" {
 #endif
 
-#include<stdlib.h>
-#include<stdint.h>
-#include<stdio.h>
-#include<string.h>
-#include "../memoization/memo_long_int.h"
-#include "../indexed_skiplist/indexed_skiplist_long_int.h"
   void cache_eviction_analyzer(int argc, char** argv);
 
 #ifdef __cplusplus
