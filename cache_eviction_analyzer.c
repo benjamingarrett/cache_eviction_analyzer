@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,8 @@
 //#define COMPARE_CACHES  
 
 const char * result_sequence_param = "--cea_result_sequence";
+const char * cea_execution_trace_fname = "cache_eviction_analyzer_execution_trace.log";
+FILE * fp;
 
 typedef struct {
   int64_t min_absolute_access;
@@ -53,7 +56,8 @@ void initialize_pseudo_cache(pseudo_cache_t * pc){
   pc->timestamp = calloc(PSEUDO_CACHE_CAPACITY, sizeof(int64_t));
   pc->largest_key = PSEUDO_CACHE_NON_VALUE;
   pc->highest_timestamp = PSEUDO_CACHE_NON_VALUE;
-  for(int64_t g = 0; g < PSEUDO_CACHE_CAPACITY; g++){
+  int64_t g;
+  for(g = 0; g < PSEUDO_CACHE_CAPACITY; g++){
     pc->key[g] = PSEUDO_CACHE_NON_VALUE;
     pc->timestamp[g] = PSEUDO_CACHE_NON_VALUE;
   }
@@ -65,11 +69,14 @@ pseudo_cache_t * get_pseudo_cache(){ return pseudo_cache; }
 void view_pseudo_cache(){
   pseudo_cache_t * pc = get_pseudo_cache();
   int64_t m = pc->highest_timestamp+2;
-  printf("\n====pseudo cache====\n");
-  for(int64_t g = 0; g <= m; g++){
-    printf("t[%ld]=%ld\tk[%ld]=%ld\n", g, pc->timestamp[g], g, pc->key[g]);
+  fp=fopen(cea_execution_trace_fname,"a");
+  fprintf(fp,"\n====pseudo cache====\n");
+  int64_t g;
+  for(g = 0; g <= m; g++){
+    fprintf(fp,"t[%ld]=%ld\tk[%ld]=%ld\n", g, pc->timestamp[g], g, pc->key[g]);
   }
-  printf("====\n");
+  fprintf(fp,"====\n");
+  fclose(fp);
 }
 void set_timestamp(int64_t k, int64_t t){
   #ifdef SLOW_CACHE
@@ -162,7 +169,9 @@ void process_eviction(age_t * ages, int64_t evicted_key){
     if(!is_empty(get_timestamp(evicted_key))){
       update_min_bound(&(ages->min_absolute_access), absolute_age(*ages,evicted_key));
       update_min_bound(&(ages->min_relative_access), relative_age(*ages,evicted_key));
-      printf("evicting key %ld\n", evicted_key);
+      fp=fopen(cea_execution_trace_fname,"a");
+      fprintf(fp,"evicting key %ld\n", evicted_key);
+      fclose(fp);
       evict_key(&evicted_key);
     } else {
       fprintf(stderr, "key %ld not in cache\n", evicted_key);
@@ -172,7 +181,9 @@ void process_eviction(age_t * ages, int64_t evicted_key){
 }
 void process_timestamp_update(age_t * ages, int64_t updated_key, int64_t new_time){
   if(updated_key!=-1){
-    printf("update key %ld to time %ld (current time %ld)\n", updated_key, new_time, ages->current_time);
+    fp=fopen(cea_execution_trace_fname,"a");
+    fprintf(fp,"update key %ld to time %ld (current time %ld)\n", updated_key, new_time, ages->current_time);
+    fclose(fp);
     if(!is_empty(get_timestamp(updated_key))){
       evict_key(&updated_key);
       set_timestamp(updated_key,new_time);
@@ -185,7 +196,9 @@ void process_timestamp_update(age_t * ages, int64_t updated_key, int64_t new_tim
 void process_usage(age_t * ages, int64_t updated_key){
   if(updated_key!=-1){
     int64_t old_time = *get_timestamp(updated_key);
-    printf("update key %ld from time %ld to current time %ld\n", updated_key, old_time, ages->current_time);
+    fp=fopen(cea_execution_trace_fname,"a");
+    fprintf(fp,"update key %ld from time %ld to current time %ld\n", updated_key, old_time, ages->current_time);
+    fclose(fp);
     if(!is_empty(get_timestamp(updated_key))){
       evict_key(&updated_key);
       set_timestamp(updated_key, ages->current_time);
@@ -219,9 +232,12 @@ void process_input_line(age_t * ages, int64_t op, int64_t event, int64_t new_key
   }
 }
 void cache_eviction_analyzer(int argc, char ** argv){
-  printf("cache_eviction_analyzer\n");
+  FILE * fp2;
+  fp2=fopen(cea_execution_trace_fname,"a");
+  fprintf(fp2,"cache_eviction_analyzer\n");
   char result_sequence_fname[LINE_BUF_LEN];
-  for(int64_t i = 1; i < argc; i++){
+  int64_t i;
+  for(i = 1; i < argc; i++){
     if(strcmp(argv[i], result_sequence_param) == 0){
       if(i + 1 < argc){
         strcpy(result_sequence_fname, &argv[++i][0]);
@@ -235,7 +251,7 @@ void cache_eviction_analyzer(int argc, char ** argv){
   set_pseudo_cache(&access_times);
   initialize_skiplist_long_int();
   initialize_long_int_cache(argc,argv);
-  FILE * fp = fopen(result_sequence_fname, "r");
+  fp = fopen(result_sequence_fname, "r");
   if(fp == NULL){
     fprintf(stderr, "Failed to open file %s\n", result_sequence_fname);
     exit(1);
@@ -243,19 +259,20 @@ void cache_eviction_analyzer(int argc, char ** argv){
   int64_t n;
   char buf[LINE_BUF_LEN];
   while((n = fscanf(fp, "%s", buf)) != EOF){
-    printf("Processing >%s<\n", buf);
+    fprintf(fp2,"Processing >%s<\n", buf);
     if(strcmp("OPERATIONS", buf) == 0){
       int64_t op, event, new_key, old_key, result, new_time, old_time;
       while((n = fscanf(fp, "%ld %ld %ld %ld %ld %ld %ld\n",
               &op, &event, &new_key, &old_key, &result, &new_time, &old_time)) != EOF){
-        printf("event %ld new_key %ld old_key %ld new_time %ld old_time %ld -- [%ld,%ld]\n",
+        fprintf(fp2,"event %ld new_key %ld old_key %ld new_time %ld old_time %ld -- [%ld,%ld]\n",
               event, new_key, old_key, new_time, old_time, 
               ages.min_absolute_access, ages.min_relative_access);
         process_input_line(&ages, op, event, new_key, old_key, result, new_time, old_time);
       }
     }
   }
-  printf("access(abs,rel): [%ld,%ld]\n", ages.min_absolute_access, ages.min_relative_access);
+  fprintf(fp2,"access(abs,rel): [%ld,%ld]\n", ages.min_absolute_access, ages.min_relative_access);
   fclose(fp);
+  fclose(fp2);
 }
 

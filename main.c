@@ -3,5 +3,5 @@
 
 int main(int argc, char** argv){
   cache_eviction_analyzer(argc, argv);
-  return (EXIT_SUCCESS);
+  return 0;
 }
